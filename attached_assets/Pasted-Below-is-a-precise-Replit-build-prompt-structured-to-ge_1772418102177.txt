@@ -1,0 +1,323 @@
+Below is a **precise Replit build prompt** structured to generate a secure, role-based web application with strict data separation and permissions enforcement.
+
+This prompt emphasizes:
+
+* Authentication
+* Role selection (Patient vs Clinician)
+* Data isolation
+* Permission control (patients cannot edit)
+
+You can paste this directly into Replit AI.
+
+---
+
+# Replit Build Prompt
+
+## Project Name: Clear Skies – Role-Based MS Portal
+
+Build a full-stack web application with secure authentication and strict role-based access control.
+
+The primary focus is:
+
+1. Login system
+2. Role selection (Clinician or Patient)
+3. Data isolation
+4. Permission enforcement
+
+Use a clean, minimal UI.
+
+---
+
+# Tech Stack Requirements
+
+Use:
+
+* Backend: Node.js + Express
+* Database: PostgreSQL (or SQLite if needed)
+* Authentication: JWT-based authentication
+* Password hashing: bcrypt
+* Frontend: Simple server-rendered pages (EJS or similar) OR React if preferred
+* Session protection middleware
+
+Structure project cleanly:
+
+* routes/
+* middleware/
+* models/
+* views/
+* controllers/
+
+---
+
+# Core System Design
+
+## 1. User Roles
+
+Two roles:
+
+* clinician
+* patient
+
+Each user must choose their role at registration.
+
+Store role in the database.
+
+---
+
+# 2. Database Schema
+
+Create the following tables:
+
+## Users Table
+
+* id (primary key)
+* name
+* email (unique)
+* password_hash
+* role (clinician or patient)
+* created_at
+
+## Patients Table
+
+* id (primary key)
+* clinician_id (foreign key → users.id)
+* patient_user_id (foreign key → users.id)
+* age
+* ms_duration_years
+* total_relapses
+* relapses_last_12_months
+* edss_score
+* notes
+* created_at
+* updated_at
+
+Important rules:
+
+* A clinician can have many patients.
+* A patient belongs to exactly one clinician.
+* A patient must be linked to a patient user account.
+
+---
+
+# 3. Authentication Flow
+
+## Registration Page
+
+Fields:
+
+* Name
+* Email
+* Password
+* Role selection (radio buttons):
+
+  * I am a Clinician
+  * I am a Patient
+
+If registering as Patient:
+
+* Must provide clinician email to link account.
+
+On registration:
+
+* Hash password.
+* Create user.
+* If patient:
+
+  * Associate with clinician record.
+
+---
+
+## Login Page
+
+Fields:
+
+* Email
+* Password
+
+After login:
+
+* Issue JWT.
+* Redirect based on role:
+
+If clinician → /clinician/dashboard
+If patient → /patient/dashboard
+
+---
+
+# 4. Authorization Middleware
+
+Create middleware:
+
+requireAuth → verifies JWT
+requireClinician → verifies role === clinician
+requirePatient → verifies role === patient
+
+Strictly enforce route access.
+
+---
+
+# 5. Clinician Permissions
+
+Clinician Dashboard:
+
+Show:
+
+* List of only THEIR patients
+  Query:
+  WHERE clinician_id = loggedInUser.id
+
+Features:
+
+* View patient
+* Create new patient record
+* Edit patient record
+* Update MS data
+
+Clinician CAN:
+
+* Create patient record
+* Edit MS duration
+* Edit relapse counts
+* Edit EDSS
+* Edit notes
+
+Clinician CANNOT:
+
+* Access other clinicians’ patients
+
+---
+
+# 6. Patient Permissions
+
+Patient Dashboard:
+
+Show:
+
+* Only their own record
+  Query:
+  WHERE patient_user_id = loggedInUser.id
+
+Patient CAN:
+
+* View their information
+
+Patient CANNOT:
+
+* Edit any medical fields
+* Update relapses
+* Update EDSS
+* Update notes
+* Access other patients
+* Access clinician dashboard
+
+Remove all edit buttons from patient view.
+
+---
+
+# 7. Route Structure
+
+Public:
+
+* GET /register
+* GET /login
+
+Protected:
+
+* GET /clinician/dashboard
+
+* GET /clinician/patient/:id
+
+* POST /clinician/patient/create
+
+* POST /clinician/patient/update/:id
+
+* GET /patient/dashboard
+
+Add server-side validation:
+
+* Ensure clinician_id matches logged-in clinician before viewing/editing.
+* Ensure patient_user_id matches logged-in patient before viewing.
+
+---
+
+# 8. Security Rules (Critical)
+
+* Never trust client-side role.
+* Always verify role in backend middleware.
+* Prevent IDOR (Insecure Direct Object Reference):
+
+  * Validate ownership before returning patient record.
+* Use hashed passwords.
+* Use JWT expiration.
+* Sanitize inputs.
+* Protect routes with middleware.
+
+---
+
+# 9. UI Requirements
+
+Keep interface minimal and clean.
+
+Login page:
+
+* Centered card layout.
+* Clear role choice on registration.
+
+Clinician Dashboard:
+
+* Table of patients:
+
+  * Name
+  * Age
+  * MS Duration
+  * Relapses
+  * EDSS
+  * View/Edit button
+
+Patient Dashboard:
+
+* Simple summary card:
+
+  * Age
+  * MS Duration
+  * Total Relapses
+  * Relapses Last Year
+  * EDSS
+  * Notes
+
+No edit controls visible for patients.
+
+---
+
+# 10. Access Control Tests
+
+Ensure:
+
+* Patient cannot manually navigate to:
+  /clinician/dashboard
+* Clinician cannot see patients not assigned to them.
+* Patient cannot edit data even if they attempt API manipulation.
+* Unauthorized users are redirected to login.
+
+---
+
+# Goal of This Build
+
+This system must demonstrate:
+
+* Proper role-based access control (RBAC)
+* Clean authentication flow
+* Secure ownership enforcement
+* Clear separation of patient and clinician privileges
+
+Focus on backend security and login logic first.
+UI design is secondary.
+
+---
+
+If you want, I can next:
+
+* Generate the actual Express middleware code
+* Provide a secure JWT authentication template
+* Create a production-grade RBAC explanation
+* Or convert this into a more advanced HIPAA-conscious architecture plan
