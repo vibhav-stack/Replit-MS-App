@@ -8,28 +8,17 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Cloud, UserPlus, AlertCircle, Loader2, Stethoscope, User } from "lucide-react";
+import { Cloud, UserPlus, AlertCircle, Loader2, Stethoscope } from "lucide-react";
 
 const registerFormSchema = z.object({
   name: z.string().min(2, "Name must be at least 2 characters"),
   email: z.string().email("Invalid email address"),
   password: z.string().min(6, "Password must be at least 6 characters"),
   confirmPassword: z.string(),
-  role: z.enum(["clinician", "patient"]),
-  clinicianEmail: z.string().email("Invalid clinician email").optional().or(z.literal("")),
 }).refine((data) => data.password === data.confirmPassword, {
   message: "Passwords do not match",
   path: ["confirmPassword"],
-}).refine((data) => {
-  if (data.role === "patient" && (!data.clinicianEmail || data.clinicianEmail === "")) {
-    return false;
-  }
-  return true;
-}, {
-  message: "Clinician email is required for patient registration",
-  path: ["clinicianEmail"],
 });
 
 type RegisterForm = z.infer<typeof registerFormSchema>;
@@ -46,12 +35,8 @@ export default function RegisterPage() {
       email: "",
       password: "",
       confirmPassword: "",
-      role: "clinician",
-      clinicianEmail: "",
     },
   });
-
-  const selectedRole = form.watch("role");
 
   const onSubmit = async (data: RegisterForm) => {
     setError("");
@@ -61,8 +46,7 @@ export default function RegisterPage() {
         name: data.name,
         email: data.email,
         password: data.password,
-        role: data.role,
-        clinicianEmail: data.role === "patient" ? data.clinicianEmail : undefined,
+        role: "clinician",
       });
     } catch (err: any) {
       setError(err.message?.replace(/^\d+:\s*/, "") || "Registration failed");
@@ -79,13 +63,18 @@ export default function RegisterPage() {
             <Cloud className="w-8 h-8 text-primary" />
           </div>
           <h1 className="text-3xl font-bold tracking-tight text-foreground">Clear Skies</h1>
-          <p className="text-muted-foreground mt-1">Create your account</p>
+          <p className="text-muted-foreground mt-1">Clinician Registration</p>
         </div>
 
         <Card>
           <CardHeader className="space-y-1 pb-4">
-            <CardTitle className="text-xl">Register</CardTitle>
-            <CardDescription>Choose your role and set up your account</CardDescription>
+            <CardTitle className="text-xl flex items-center gap-2">
+              <Stethoscope className="w-5 h-5 text-primary" />
+              Create Clinician Account
+            </CardTitle>
+            <CardDescription>
+              Register as a clinician to manage your patients. Once registered, you can invite patients via email.
+            </CardDescription>
           </CardHeader>
           <CardContent>
             {error && (
@@ -96,44 +85,6 @@ export default function RegisterPage() {
             )}
 
             <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-              <div className="space-y-3">
-                <Label>I am a...</Label>
-                <RadioGroup
-                  value={selectedRole}
-                  onValueChange={(val) => form.setValue("role", val as "clinician" | "patient")}
-                  className="grid grid-cols-2 gap-3"
-                >
-                  <Label
-                    htmlFor="role-clinician"
-                    className={`flex items-center gap-3 rounded-md border-2 p-3 cursor-pointer transition-colors ${
-                      selectedRole === "clinician"
-                        ? "border-primary bg-primary/5"
-                        : "border-border"
-                    }`}
-                  >
-                    <RadioGroupItem value="clinician" id="role-clinician" data-testid="radio-clinician" />
-                    <div className="flex items-center gap-2">
-                      <Stethoscope className="w-4 h-4 text-primary" />
-                      <span className="text-sm font-medium">Clinician</span>
-                    </div>
-                  </Label>
-                  <Label
-                    htmlFor="role-patient"
-                    className={`flex items-center gap-3 rounded-md border-2 p-3 cursor-pointer transition-colors ${
-                      selectedRole === "patient"
-                        ? "border-primary bg-primary/5"
-                        : "border-border"
-                    }`}
-                  >
-                    <RadioGroupItem value="patient" id="role-patient" data-testid="radio-patient" />
-                    <div className="flex items-center gap-2">
-                      <User className="w-4 h-4 text-primary" />
-                      <span className="text-sm font-medium">Patient</span>
-                    </div>
-                  </Label>
-                </RadioGroup>
-              </div>
-
               <div className="space-y-2">
                 <Label htmlFor="name">Full Name</Label>
                 <Input
@@ -189,32 +140,13 @@ export default function RegisterPage() {
                 )}
               </div>
 
-              {selectedRole === "patient" && (
-                <div className="space-y-2">
-                  <Label htmlFor="clinicianEmail">Clinician's Email</Label>
-                  <Input
-                    id="clinicianEmail"
-                    type="email"
-                    placeholder="Your clinician's email address"
-                    data-testid="input-clinician-email"
-                    {...form.register("clinicianEmail")}
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    Enter the email of the clinician managing your care
-                  </p>
-                  {form.formState.errors.clinicianEmail && (
-                    <p className="text-sm text-destructive">{form.formState.errors.clinicianEmail.message}</p>
-                  )}
-                </div>
-              )}
-
               <Button type="submit" className="w-full" disabled={isSubmitting} data-testid="button-register">
                 {isSubmitting ? (
                   <Loader2 className="w-4 h-4 animate-spin mr-2" />
                 ) : (
                   <UserPlus className="w-4 h-4 mr-2" />
                 )}
-                {isSubmitting ? "Creating account..." : "Create Account"}
+                {isSubmitting ? "Creating account..." : "Create Clinician Account"}
               </Button>
             </form>
 
@@ -223,6 +155,12 @@ export default function RegisterPage() {
               <Link href="/login" className="text-primary hover:underline font-medium" data-testid="link-login">
                 Sign in
               </Link>
+            </div>
+
+            <div className="mt-3 text-center">
+              <p className="text-xs text-muted-foreground">
+                Are you a patient? Your clinician will send you an invitation email to create your account.
+              </p>
             </div>
           </CardContent>
         </Card>

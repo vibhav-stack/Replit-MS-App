@@ -28,11 +28,15 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
-  LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
+  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from "recharts";
+import { HelpGuide } from "@/components/help-guide";
+import { Chatbot } from "@/components/chatbot";
 import {
   Cloud,
   LogOut,
+  BookOpen,
+  MessageCircle,
   Plus,
   Pencil,
   Eye,
@@ -85,6 +89,8 @@ export default function ClinicianDashboard() {
   const [editingPatient, setEditingPatient] = useState<PatientRecord | null>(null);
   const [viewingPatient, setViewingPatient] = useState<PatientRecord | null>(null);
   const [dailyLogPatient, setDailyLogPatient] = useState<PatientRecord | null>(null);
+  const [showHelp, setShowHelp] = useState(false);
+  const [showChat, setShowChat] = useState(false);
 
   const { data: patients, isLoading } = useQuery<PatientRecord[]>({
     queryKey: ["/api/clinician/patients"],
@@ -92,6 +98,8 @@ export default function ClinicianDashboard() {
 
   return (
     <div className="min-h-screen bg-background">
+      {showHelp && <HelpGuide role="clinician" onClose={() => setShowHelp(false)} />}
+      <Chatbot role="clinician" isOpen={showChat} onClose={() => setShowChat(false)} />
       <header className="border-b bg-card">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between gap-4 h-16">
@@ -103,6 +111,25 @@ export default function ClinicianDashboard() {
                 <h1 className="text-lg font-semibold text-foreground leading-tight">Clear Skies</h1>
                 <p className="text-xs text-muted-foreground leading-tight">Clinician Portal</p>
               </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowHelp(true)}
+                data-testid="button-help-guide"
+                className="ml-2"
+              >
+                <BookOpen className="w-3.5 h-3.5 mr-1.5" />
+                Help Guide
+              </Button>
+              <Button
+                variant={showChat ? "default" : "outline"}
+                size="sm"
+                onClick={() => setShowChat((v) => !v)}
+                data-testid="button-ms-assistant"
+              >
+                <MessageCircle className="w-3.5 h-3.5 mr-1.5" />
+                MS Assistant
+              </Button>
             </div>
             <div className="flex items-center gap-3 flex-wrap">
               <div className="text-right hidden sm:block">
@@ -123,8 +150,8 @@ export default function ClinicianDashboard() {
       </header>
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
-          <Card>
+        <div className="mb-8">
+          <Card className="w-fit">
             <CardContent className="pt-6">
               <div className="flex items-center gap-3">
                 <div className="flex items-center justify-center w-10 h-10 rounded-md bg-primary/10">
@@ -133,41 +160,6 @@ export default function ClinicianDashboard() {
                 <div>
                   <p className="text-2xl font-bold" data-testid="text-total-patients">{patients?.length || 0}</p>
                   <p className="text-xs text-muted-foreground">Total Patients</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="pt-6">
-              <div className="flex items-center gap-3">
-                <div className="flex items-center justify-center w-10 h-10 rounded-md bg-chart-2/10">
-                  <Activity className="w-5 h-5 text-chart-2" />
-                </div>
-                <div>
-                  <p className="text-2xl font-bold">
-                    {patients?.filter((p) => p.relapsesLast12Months && p.relapsesLast12Months > 0).length || 0}
-                  </p>
-                  <p className="text-xs text-muted-foreground">Active Relapses (12mo)</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="pt-6">
-              <div className="flex items-center gap-3">
-                <div className="flex items-center justify-center w-10 h-10 rounded-md bg-chart-3/10">
-                  <Brain className="w-5 h-5 text-chart-3" />
-                </div>
-                <div>
-                  <p className="text-2xl font-bold">
-                    {patients?.length
-                      ? (
-                          patients.reduce((sum, p) => sum + (p.edssScore ? parseFloat(p.edssScore) : 0), 0) /
-                          patients.filter((p) => p.edssScore).length || 0
-                        ).toFixed(1)
-                      : "0.0"}
-                  </p>
-                  <p className="text-xs text-muted-foreground">Avg EDSS Score</p>
                 </div>
               </div>
             </CardContent>
@@ -290,6 +282,10 @@ export default function ClinicianDashboard() {
             )}
           </CardContent>
         </Card>
+
+        {patients && patients.length > 0 && (
+          <ClinicianInsightsPanel patients={patients} />
+        )}
       </main>
 
       <CreatePatientDialog open={showCreate} onClose={() => setShowCreate(false)} />
@@ -300,8 +296,374 @@ export default function ClinicianDashboard() {
   );
 }
 
+interface VarianceMetric {
+  key: string;
+  label: string;
+  mean: number;
+  stdDev: number;
+  variance: number;
+  cv: number;
+  min: number;
+  max: number;
+  range: number;
+  color: string;
+}
+
+interface SymptomVarianceData {
+  metrics: VarianceMetric[];
+  mostVarying: VarianceMetric | null;
+  dailyData: any[];
+  message?: string;
+}
+
+const VARIANCE_KEY_MAP: Record<string, string> = {
+  sleepHours: "sleepHours",
+  physicalComfort: "physicalComfort",
+  overallWellbeing: "overallWellbeing",
+  activityLevel: "activityLevel",
+  painSymptoms: "painCount",
+  fatigueSymptoms: "fatigueCount",
+  visualSymptoms: "visualCount",
+};
+
+function SymptomVarianceChart({ data, title }: { data: SymptomVarianceData; title?: string }) {
+  if (!data.mostVarying || data.dailyData.length < 2) {
+    return (
+      <div className="text-center py-6">
+        <TrendingUp className="w-8 h-8 text-muted-foreground mx-auto mb-2" />
+        <p className="text-sm text-muted-foreground">{data.message || "Need at least 2 daily logs to analyze symptom variance."}</p>
+      </div>
+    );
+  }
+
+  const chartKey = VARIANCE_KEY_MAP[data.mostVarying.key] || data.mostVarying.key;
+  const chartData = [...data.dailyData].reverse().map((d) => ({
+    ...d,
+    date: format(new Date(d.date + "T00:00:00"), "MMM d"),
+  }));
+
+  const sorted = [...data.metrics].sort((a, b) => b.cv - a.cv);
+
+  return (
+    <div className="space-y-6">
+      {title && <p className="text-sm font-semibold">{title}</p>}
+
+      <div className="p-4 border rounded-lg bg-primary/5 border-primary/20">
+        <div className="flex items-center gap-2 mb-1">
+          <Activity className="w-4 h-4 text-primary" />
+          <p className="text-sm font-semibold text-foreground" data-testid="text-most-varying-label">Most Varying: {data.mostVarying.label}</p>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Coefficient of Variation: {data.mostVarying.cv}% | Range: {data.mostVarying.min} – {data.mostVarying.max} | Avg: {data.mostVarying.mean}
+        </p>
+      </div>
+
+      <div>
+        <p className="text-sm font-medium mb-2">{data.mostVarying.label} Over Time</p>
+        <ResponsiveContainer width="100%" height={220}>
+          <LineChart data={chartData}>
+            <CartesianGrid strokeDasharray="3 3" />
+            <XAxis dataKey="date" fontSize={10} />
+            <YAxis fontSize={10} />
+            <Tooltip />
+            <Line type="monotone" dataKey={chartKey} stroke="hsl(var(--primary))" strokeWidth={2} name={data.mostVarying.label} dot={{ r: 3 }} />
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
+
+      <div>
+        <p className="text-sm font-medium mb-2">Variability Ranking (by Coefficient of Variation)</p>
+        <div className="space-y-2">
+          {sorted.map((m, i) => {
+            const maxCv = sorted[0].cv || 1;
+            const barWidth = maxCv > 0 ? (m.cv / maxCv) * 100 : 0;
+            return (
+              <div key={m.key} className="flex items-center gap-3" data-testid={`variance-row-${m.key}`}>
+                <span className="text-xs text-muted-foreground w-4">{i + 1}.</span>
+                <span className="text-xs w-32 truncate">{m.label}</span>
+                <div className="flex-1 bg-muted rounded-full h-2 overflow-hidden">
+                  <div
+                    className={`h-full rounded-full ${m.key === data.mostVarying?.key ? "bg-primary" : "bg-muted-foreground/40"}`}
+                    style={{ width: `${barWidth}%` }}
+                  />
+                </div>
+                <span className="text-xs font-mono w-14 text-right">{m.cv}%</span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ClinicianInsightsPanel({ patients }: { patients: PatientRecord[] }) {
+  const patientsWithAge = patients.filter((p) => p.age !== null);
+  const patientsWithRelapses = patients.filter((p) => p.totalRelapses !== null);
+  const patientsWithDuration = patients.filter((p) => p.msDurationYears !== null);
+
+  const patientStageTable = patients
+    .filter((p) => p.age !== null || p.totalRelapses !== null || p.msDurationYears !== null)
+    .map((p) => ({
+      name: p.patientName,
+      id: p.id,
+      byAge: p.age !== null ? classifyMsStageByAge(p.age).stage : "-",
+      byRelapses: p.totalRelapses !== null ? classifyMsStageByRelapses(p.totalRelapses).stage : "-",
+      byDuration: p.msDurationYears !== null ? classifyMsStageByDuration(parseFloat(p.msDurationYears)).stage : "-",
+    }));
+
+  const hasData = patientsWithAge.length > 0 || patientsWithRelapses.length > 0 || patientsWithDuration.length > 0;
+
+  const [selectedPatientId, setSelectedPatientId] = useState<string | null>(null);
+
+  if (!hasData) {
+    return (
+      <Card className="mt-8">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Brain className="w-5 h-5" /> MS Insights
+          </CardTitle>
+          <CardDescription>Record clinical data for your patients to see insights</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="text-center py-8">
+            <Brain className="w-10 h-10 text-muted-foreground mx-auto mb-3" />
+            <p className="text-sm text-muted-foreground">Add age, relapses, and MS duration data to your patients to generate MS stage classifications and insights.</p>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <Card className="mt-8" data-testid="card-clinician-insights">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Brain className="w-5 h-5" /> MS Insights
+        </CardTitle>
+        <CardDescription>Stage classifications, AI analysis, and symptom variance</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-8">
+        {patientStageTable.length > 0 && (
+          <div>
+            <p className="text-sm font-semibold mb-3">Patient Stage Classification</p>
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Patient</TableHead>
+                    <TableHead>By Age</TableHead>
+                    <TableHead>By Relapses</TableHead>
+                    <TableHead>By Duration</TableHead>
+                    <TableHead className="text-right">Insights</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {patientStageTable.map((row) => (
+                    <TableRow key={row.name} data-testid={`row-insight-${row.name}`}>
+                      <TableCell className="font-medium">{row.name}</TableCell>
+                      <TableCell>
+                        {row.byAge !== "-" ? (
+                          <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${STAGE_COLORS[row.byAge]}`}>{row.byAge}</span>
+                        ) : "-"}
+                      </TableCell>
+                      <TableCell>
+                        {row.byRelapses !== "-" ? (
+                          <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${STAGE_COLORS[row.byRelapses]}`}>{row.byRelapses}</span>
+                        ) : "-"}
+                      </TableCell>
+                      <TableCell>
+                        {row.byDuration !== "-" ? (
+                          <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${STAGE_COLORS[row.byDuration]}`}>{row.byDuration}</span>
+                        ) : "-"}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <Button
+                          variant={selectedPatientId === row.id ? "default" : "outline"}
+                          size="sm"
+                          onClick={() => setSelectedPatientId(selectedPatientId === row.id ? null : row.id)}
+                          data-testid={`button-generate-insights-${row.id}`}
+                        >
+                          <Brain className="w-3 h-3 mr-1" />
+                          {selectedPatientId === row.id ? "Hide" : "Generate Insights"}
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          </div>
+        )}
+
+        {selectedPatientId && (
+          <PatientInsightsPanel
+            patientId={selectedPatientId}
+            patient={patients.find(p => p.id === selectedPatientId)!}
+          />
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+interface AiInsights {
+  summary: string;
+  alarmingFindings: string[];
+  positiveFindings: string[];
+  recommendations: string[];
+  symptomPatterns: string;
+  riskLevel: "low" | "moderate" | "high";
+}
+
+function PatientInsightsPanel({ patientId, patient }: { patientId: string; patient: PatientRecord }) {
+  const { toast } = useToast();
+  const [aiInsights, setAiInsights] = useState<AiInsights | null>(null);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
+  const [prevPatientId, setPrevPatientId] = useState(patientId);
+
+  if (patientId !== prevPatientId) {
+    setPrevPatientId(patientId);
+    setAiInsights(null);
+    setAiLoading(false);
+    setAiError(null);
+  }
+
+  const { data: varianceData, isLoading: varianceLoading } = useQuery<SymptomVarianceData>({
+    queryKey: ["/api/clinician/patient", patientId, "insights/symptom-variance"],
+  });
+
+  const generateAiInsights = async () => {
+    setAiLoading(true);
+    setAiError(null);
+    try {
+      const res = await apiRequest("POST", `/api/clinician/patient/${patientId}/insights/ai`);
+      const data = await res.json();
+      setAiInsights(data);
+    } catch (err: any) {
+      setAiError(err.message || "Failed to generate AI insights");
+      toast({ title: "Error", description: "Failed to generate AI insights", variant: "destructive" });
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
+  const riskColors = {
+    low: "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200",
+    moderate: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200",
+    high: "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200",
+  };
+
+  return (
+    <div className="space-y-6 border rounded-lg p-6" data-testid={`insights-panel-${patientId}`}>
+      <div className="flex items-center justify-between">
+        <h3 className="text-base font-semibold">{patient.patientName} — Insights</h3>
+        <Button
+          onClick={generateAiInsights}
+          disabled={aiLoading}
+          size="sm"
+          data-testid={`button-ai-generate-${patientId}`}
+        >
+          {aiLoading ? (
+            <>
+              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              Analyzing...
+            </>
+          ) : (
+            <>
+              <Brain className="w-4 h-4 mr-2" />
+              {aiInsights ? "Regenerate AI Analysis" : "Generate AI Analysis"}
+            </>
+          )}
+        </Button>
+      </div>
+
+      {aiInsights && (
+        <div className="space-y-4" data-testid={`ai-insights-${patientId}`}>
+          <div className="flex items-center gap-2 mb-2">
+            <span className="text-sm font-medium">Risk Level:</span>
+            <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${riskColors[aiInsights.riskLevel]}`} data-testid={`text-risk-level-${patientId}`}>
+              {aiInsights.riskLevel.toUpperCase()}
+            </span>
+          </div>
+
+          <div className="p-4 bg-muted/50 rounded-lg">
+            <p className="text-sm font-medium mb-1">Summary</p>
+            <p className="text-sm text-foreground" data-testid={`text-ai-summary-${patientId}`}>{aiInsights.summary}</p>
+          </div>
+
+          {(aiInsights.alarmingFindings?.length ?? 0) > 0 && (
+            <div className="p-4 border border-red-200 dark:border-red-800 rounded-lg bg-red-50 dark:bg-red-950/30">
+              <p className="text-sm font-medium text-red-800 dark:text-red-200 mb-2">Alarming Findings</p>
+              <ul className="space-y-1">
+                {aiInsights.alarmingFindings.map((finding, i) => (
+                  <li key={i} className="text-sm text-red-700 dark:text-red-300 flex items-start gap-2">
+                    <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-red-500 flex-shrink-0" />
+                    {finding}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {(aiInsights.positiveFindings?.length ?? 0) > 0 && (
+            <div className="p-4 border border-green-200 dark:border-green-800 rounded-lg bg-green-50 dark:bg-green-950/30">
+              <p className="text-sm font-medium text-green-800 dark:text-green-200 mb-2">Positive Findings</p>
+              <ul className="space-y-1">
+                {aiInsights.positiveFindings.map((finding, i) => (
+                  <li key={i} className="text-sm text-green-700 dark:text-green-300 flex items-start gap-2">
+                    <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-green-500 flex-shrink-0" />
+                    {finding}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {aiInsights.symptomPatterns && (
+            <div className="p-4 bg-muted/50 rounded-lg">
+              <p className="text-sm font-medium mb-1">Symptom Patterns</p>
+              <p className="text-sm text-foreground">{aiInsights.symptomPatterns}</p>
+            </div>
+          )}
+
+          {(aiInsights.recommendations?.length ?? 0) > 0 && (
+            <div className="p-4 border rounded-lg">
+              <p className="text-sm font-medium mb-2">Recommendations</p>
+              <ul className="space-y-1">
+                {aiInsights.recommendations.map((rec, i) => (
+                  <li key={i} className="text-sm text-foreground flex items-start gap-2">
+                    <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-primary flex-shrink-0" />
+                    {rec}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
+
+      {aiError && !aiInsights && (
+        <div className="p-4 border border-red-200 dark:border-red-800 rounded-lg bg-red-50 dark:bg-red-950/30">
+          <p className="text-sm text-red-700 dark:text-red-300">{aiError}</p>
+        </div>
+      )}
+
+      <div data-testid={`variance-chart-${patientId}`}>
+        {varianceLoading ? (
+          <Skeleton className="h-40 w-full" />
+        ) : varianceData ? (
+          <SymptomVarianceChart data={varianceData} title={`Symptom Variance Analysis — ${patient.patientName}`} />
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 function CreatePatientDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { toast } = useToast();
+  const [patientName, setPatientName] = useState("");
   const [patientEmail, setPatientEmail] = useState("");
   const [age, setAge] = useState("");
   const [msDuration, setMsDuration] = useState("");
@@ -315,9 +677,15 @@ function CreatePatientDialog({ open, onClose }: { open: boolean; onClose: () => 
       const res = await apiRequest("POST", "/api/clinician/patient/create", data);
       return res.json();
     },
-    onSuccess: () => {
+    onSuccess: (data: any) => {
       queryClient.invalidateQueries({ queryKey: ["/api/clinician/patients"] });
-      toast({ title: "Patient added", description: "Patient record created successfully" });
+      if (data.invited && data.emailSent) {
+        toast({ title: "Invitation sent", description: `An invitation email has been sent to ${data.patientEmail}` });
+      } else if (data.invited && !data.emailSent) {
+        toast({ title: "Invitation created", description: "Invitation was created but the email could not be sent. The patient can still be invited later.", variant: "destructive" });
+      } else {
+        toast({ title: "Patient added", description: "Patient record created successfully" });
+      }
       resetForm();
       onClose();
     },
@@ -327,6 +695,7 @@ function CreatePatientDialog({ open, onClose }: { open: boolean; onClose: () => 
   });
 
   const resetForm = () => {
+    setPatientName("");
     setPatientEmail("");
     setAge("");
     setMsDuration("");
@@ -339,6 +708,7 @@ function CreatePatientDialog({ open, onClose }: { open: boolean; onClose: () => 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     mutation.mutate({
+      patientName,
       patientEmail,
       age: age ? parseInt(age) : null,
       msDurationYears: msDuration || null,
@@ -353,10 +723,21 @@ function CreatePatientDialog({ open, onClose }: { open: boolean; onClose: () => 
     <Dialog open={open} onOpenChange={() => { resetForm(); onClose(); }}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>Add New Patient</DialogTitle>
-          <DialogDescription>Link an existing patient account and fill in their MS data.</DialogDescription>
+          <DialogTitle>Invite New Patient</DialogTitle>
+          <DialogDescription>Enter the patient's details and email. They'll receive an invitation to create their account.</DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="create-name">Patient's Full Name</Label>
+            <Input
+              id="create-name"
+              placeholder="Patient's full name"
+              value={patientName}
+              onChange={(e) => setPatientName(e.target.value)}
+              required
+              data-testid="input-create-patient-name"
+            />
+          </div>
           <div className="space-y-2">
             <Label htmlFor="create-email">Patient's Email</Label>
             <Input
@@ -368,7 +749,7 @@ function CreatePatientDialog({ open, onClose }: { open: boolean; onClose: () => 
               required
               data-testid="input-create-patient-email"
             />
-            <p className="text-xs text-muted-foreground">The patient must already have an account</p>
+            <p className="text-xs text-muted-foreground">An invitation email will be sent to this address</p>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-2">

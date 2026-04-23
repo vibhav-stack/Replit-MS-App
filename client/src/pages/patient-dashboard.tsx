@@ -19,9 +19,11 @@ import {
 } from "recharts";
 import {
   Cloud, LogOut, User, Activity, Brain, Clock, FileText, Heart,
-  Stethoscope, Moon, Smile, Zap, Pill, BookOpen, TrendingUp, Plus, CheckCircle, AlertTriangle,
+  Stethoscope, Moon, Smile, Zap, Pill, BookOpen, TrendingUp, Plus, CheckCircle, AlertTriangle, Loader2, MessageCircle,
 } from "lucide-react";
 import { format, subDays, startOfWeek, endOfWeek } from "date-fns";
+import { HelpGuide } from "@/components/help-guide";
+import { Chatbot } from "@/components/chatbot";
 
 interface PatientData {
   id: string;
@@ -83,6 +85,15 @@ const STAGE_COLORS: Record<string, string> = {
   Unclassified: "bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-200",
 };
 
+interface AiInsights {
+  summary: string;
+  alarmingFindings: string[];
+  positiveFindings: string[];
+  recommendations: string[];
+  symptomPatterns: string;
+  riskLevel: "low" | "moderate" | "high";
+}
+
 const PAIN_OPTIONS = ["Headache", "Joint pain", "Muscle spasm", "Nerve pain", "Back pain", "Neck pain"];
 const FATIGUE_OPTIONS = ["Physical fatigue", "Mental fatigue", "Lassitude", "Motor fatigue", "Cognitive fatigue"];
 const VISUAL_OPTIONS = ["Blurred vision", "Double vision", "Eye pain", "Color desaturation", "Optic neuritis"];
@@ -90,6 +101,8 @@ const VISUAL_OPTIONS = ["Blurred vision", "Double vision", "Eye pain", "Color de
 export default function PatientDashboard() {
   const { user, logout } = useAuth();
   const [activeTab, setActiveTab] = useState("overview");
+  const [showHelp, setShowHelp] = useState(false);
+  const [showChat, setShowChat] = useState(false);
 
   const { data: patient, isLoading, error } = useQuery<PatientData>({
     queryKey: ["/api/patient/dashboard"],
@@ -119,6 +132,8 @@ export default function PatientDashboard() {
 
   return (
     <div className="min-h-screen bg-background">
+      {showHelp && <HelpGuide role="patient" onClose={() => setShowHelp(false)} />}
+      <Chatbot role="patient" isOpen={showChat} onClose={() => setShowChat(false)} />
       <header className="border-b bg-card">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between gap-4 h-16">
@@ -130,6 +145,25 @@ export default function PatientDashboard() {
                 <h1 className="text-lg font-semibold text-foreground leading-tight">Clear Skies</h1>
                 <p className="text-xs text-muted-foreground leading-tight">Patient Portal</p>
               </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowHelp(true)}
+                data-testid="button-help-guide"
+                className="ml-2"
+              >
+                <BookOpen className="w-3.5 h-3.5 mr-1.5" />
+                Help Guide
+              </Button>
+              <Button
+                variant={showChat ? "default" : "outline"}
+                size="sm"
+                onClick={() => setShowChat((v) => !v)}
+                data-testid="button-ms-assistant"
+              >
+                <MessageCircle className="w-3.5 h-3.5 mr-1.5" />
+                MS Assistant
+              </Button>
             </div>
             <div className="flex items-center gap-3 flex-wrap">
               <div className="text-right hidden sm:block">
@@ -965,7 +999,107 @@ function WeeklyTrendsTab({ logs, recentLogs }: { logs: DailyLog[]; recentLogs: D
   );
 }
 
+interface VarianceMetric {
+  key: string;
+  label: string;
+  mean: number;
+  stdDev: number;
+  variance: number;
+  cv: number;
+  min: number;
+  max: number;
+  range: number;
+  color: string;
+}
+
+interface SymptomVarianceData {
+  metrics: VarianceMetric[];
+  mostVarying: VarianceMetric | null;
+  dailyData: any[];
+  message?: string;
+}
+
+const VARIANCE_KEY_MAP: Record<string, string> = {
+  sleepHours: "sleepHours",
+  physicalComfort: "physicalComfort",
+  overallWellbeing: "overallWellbeing",
+  activityLevel: "activityLevel",
+  painSymptoms: "painCount",
+  fatigueSymptoms: "fatigueCount",
+  visualSymptoms: "visualCount",
+};
+
+function PatientSymptomVarianceChart({ data }: { data: SymptomVarianceData }) {
+  if (!data.mostVarying || data.dailyData.length < 2) {
+    return (
+      <div className="text-center py-6">
+        <TrendingUp className="w-8 h-8 text-muted-foreground mx-auto mb-2" />
+        <p className="text-sm text-muted-foreground">{data.message || "Need at least 2 daily logs to analyze symptom variance."}</p>
+      </div>
+    );
+  }
+
+  const chartKey = VARIANCE_KEY_MAP[data.mostVarying.key] || data.mostVarying.key;
+  const chartData = [...data.dailyData].reverse().map((d) => ({
+    ...d,
+    date: format(new Date(d.date + "T00:00:00"), "MMM d"),
+  }));
+
+  const sorted = [...data.metrics].sort((a, b) => b.cv - a.cv);
+
+  return (
+    <div className="space-y-6">
+      <div className="p-4 border rounded-lg bg-primary/5 border-primary/20">
+        <div className="flex items-center gap-2 mb-1">
+          <Activity className="w-4 h-4 text-primary" />
+          <p className="text-sm font-semibold text-foreground" data-testid="text-patient-most-varying">Most Varying: {data.mostVarying.label}</p>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Coefficient of Variation: {data.mostVarying.cv}% | Range: {data.mostVarying.min} – {data.mostVarying.max} | Avg: {data.mostVarying.mean}
+        </p>
+      </div>
+
+      <div>
+        <p className="text-sm font-medium mb-2">{data.mostVarying.label} Over Time</p>
+        <ResponsiveContainer width="100%" height={220}>
+          <LineChart data={chartData}>
+            <CartesianGrid strokeDasharray="3 3" />
+            <XAxis dataKey="date" fontSize={10} />
+            <YAxis fontSize={10} />
+            <Tooltip />
+            <Line type="monotone" dataKey={chartKey} stroke="hsl(var(--primary))" strokeWidth={2} name={data.mostVarying.label} dot={{ r: 3 }} />
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
+
+      <div>
+        <p className="text-sm font-medium mb-2">Variability Ranking</p>
+        <div className="space-y-2">
+          {sorted.map((m, i) => {
+            const maxCv = sorted[0].cv || 1;
+            const barWidth = maxCv > 0 ? (m.cv / maxCv) * 100 : 0;
+            return (
+              <div key={m.key} className="flex items-center gap-3" data-testid={`patient-variance-row-${m.key}`}>
+                <span className="text-xs text-muted-foreground w-4">{i + 1}.</span>
+                <span className="text-xs w-32 truncate">{m.label}</span>
+                <div className="flex-1 bg-muted rounded-full h-2 overflow-hidden">
+                  <div
+                    className={`h-full rounded-full ${m.key === data.mostVarying?.key ? "bg-primary" : "bg-muted-foreground/40"}`}
+                    style={{ width: `${barWidth}%` }}
+                  />
+                </div>
+                <span className="text-xs font-mono w-14 text-right">{m.cv}%</span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function MsInsightsTab({ patient, recentLogs }: { patient: PatientData; recentLogs: DailyLog[] }) {
+  const { toast } = useToast();
   const hasAge = patient.age !== null;
   const hasRelapses = patient.totalRelapses !== null;
   const hasDuration = patient.msDurationYears !== null;
@@ -984,68 +1118,203 @@ function MsInsightsTab({ patient, recentLogs }: { patient: PatientData; recentLo
     .sort((a, b) => b[1] - a[1])
     .slice(0, 5);
 
+  const [showVariance, setShowVariance] = useState(false);
+  const { data: varianceData, isLoading: varianceLoading } = useQuery<SymptomVarianceData>({
+    queryKey: ["/api/patient/insights/symptom-variance"],
+    enabled: showVariance,
+  });
+
+  const [aiInsights, setAiInsights] = useState<AiInsights | null>(null);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
+
+  async function handleGenerateAi() {
+    setAiLoading(true);
+    setAiError(null);
+    try {
+      const res = await apiRequest("POST", "/api/patient/insights/ai");
+      const data = await res.json();
+      setAiInsights(data);
+    } catch (err: any) {
+      setAiError("Failed to generate AI insights. Please try again.");
+      toast({ title: "Error", description: "Could not generate AI insights.", variant: "destructive" });
+    } finally {
+      setAiLoading(false);
+    }
+  }
+
+  const riskColors: Record<string, string> = {
+    low: "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200",
+    moderate: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200",
+    high: "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200",
+  };
+
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-2xl font-bold text-foreground mb-1">MS Stage Insights</h2>
-        <p className="text-muted-foreground">Classification based on your clinical data</p>
+        <h2 className="text-2xl font-bold text-foreground mb-1">My Health Insights</h2>
+        <p className="text-muted-foreground">Your personal MS data and AI-powered health analysis</p>
       </div>
 
-      {!hasAge && !hasRelapses && !hasDuration ? (
-        <Card>
-          <CardContent className="pt-6">
-            <div className="text-center py-8">
-              <Brain className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
-              <h3 className="text-lg font-medium text-foreground mb-1">Insufficient Data</h3>
-              <p className="text-sm text-muted-foreground">Your clinician needs to record your age, relapses, and MS duration for stage classification.</p>
-            </div>
+      {/* AI Analysis Section */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <CardTitle className="text-base flex items-center gap-2">
+              <Brain className="w-4 h-4" /> AI Health Analysis
+            </CardTitle>
+            <Button
+              size="sm"
+              onClick={handleGenerateAi}
+              disabled={aiLoading}
+              variant={aiInsights ? "outline" : "default"}
+              data-testid="button-patient-generate-ai"
+            >
+              {aiLoading ? (
+                <><Loader2 className="w-3 h-3 mr-1 animate-spin" /> Analysing...</>
+              ) : aiInsights ? (
+                <><Brain className="w-3 h-3 mr-1" /> Regenerate</>
+              ) : (
+                <><Brain className="w-3 h-3 mr-1" /> Generate AI Analysis</>
+              )}
+            </Button>
+          </div>
+          <CardDescription>Personalised insights based on your symptom logs and health data</CardDescription>
+        </CardHeader>
+        {aiError && (
+          <CardContent>
+            <p className="text-sm text-destructive">{aiError}</p>
           </CardContent>
-        </Card>
-      ) : (
-        <div className="grid grid-cols-1 gap-4">
-          {ageStage && (
-            <Card>
-              <CardContent className="pt-6">
-                <div className="flex items-center justify-between mb-2">
-                  <p className="text-sm font-medium text-muted-foreground">By Age ({patient.age} years)</p>
-                  <span className={`px-3 py-1 rounded-full text-xs font-semibold ${STAGE_COLORS[ageStage.stage]}`} data-testid="text-stage-age">
-                    {ageStage.stage}
+        )}
+        {aiInsights && (
+          <CardContent className="space-y-5">
+            <div className="flex items-start gap-3 p-3 rounded-lg bg-muted/50">
+              <div className="flex-1">
+                <div className="flex items-center gap-2 mb-2 flex-wrap">
+                  <p className="text-sm font-semibold text-foreground">Overall Summary</p>
+                  <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${riskColors[aiInsights.riskLevel]}`} data-testid="text-patient-ai-risk">
+                    {aiInsights.riskLevel.charAt(0).toUpperCase() + aiInsights.riskLevel.slice(1)} Risk
                   </span>
                 </div>
-                <p className="text-sm text-foreground">{ageStage.description}</p>
-              </CardContent>
-            </Card>
-          )}
+                <p className="text-sm text-muted-foreground" data-testid="text-patient-ai-summary">{aiInsights.summary}</p>
+              </div>
+            </div>
 
-          {relapseStage && (
-            <Card>
-              <CardContent className="pt-6">
-                <div className="flex items-center justify-between mb-2">
-                  <p className="text-sm font-medium text-muted-foreground">By Relapses ({patient.totalRelapses} total)</p>
-                  <span className={`px-3 py-1 rounded-full text-xs font-semibold ${STAGE_COLORS[relapseStage.stage]}`} data-testid="text-stage-relapses">
-                    {relapseStage.stage}
-                  </span>
-                </div>
-                <p className="text-sm text-foreground">{relapseStage.description}</p>
-              </CardContent>
-            </Card>
-          )}
+            {aiInsights.positiveFindings?.length > 0 && (
+              <div>
+                <p className="text-sm font-semibold text-foreground mb-2 flex items-center gap-1">
+                  <CheckCircle className="w-3.5 h-3.5 text-green-600" /> What You're Doing Well
+                </p>
+                <ul className="space-y-1.5">
+                  {aiInsights.positiveFindings.map((f, i) => (
+                    <li key={i} className="text-sm text-muted-foreground flex items-start gap-2" data-testid={`text-patient-positive-${i}`}>
+                      <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-green-500 shrink-0" />
+                      {f}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
 
-          {durationStage && (
-            <Card>
-              <CardContent className="pt-6">
-                <div className="flex items-center justify-between mb-2">
-                  <p className="text-sm font-medium text-muted-foreground">By Duration ({patient.msDurationYears} years)</p>
-                  <span className={`px-3 py-1 rounded-full text-xs font-semibold ${STAGE_COLORS[durationStage.stage]}`} data-testid="text-stage-duration">
-                    {durationStage.stage}
-                  </span>
-                </div>
-                <p className="text-sm text-foreground">{durationStage.description}</p>
-              </CardContent>
-            </Card>
-          )}
-        </div>
-      )}
+            {aiInsights.alarmingFindings?.length > 0 && (
+              <div>
+                <p className="text-sm font-semibold text-foreground mb-2 flex items-center gap-1">
+                  <AlertTriangle className="w-3.5 h-3.5 text-yellow-600" /> Things to Watch
+                </p>
+                <ul className="space-y-1.5">
+                  {aiInsights.alarmingFindings.map((f, i) => (
+                    <li key={i} className="text-sm text-muted-foreground flex items-start gap-2" data-testid={`text-patient-alarming-${i}`}>
+                      <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-yellow-500 shrink-0" />
+                      {f}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {aiInsights.recommendations?.length > 0 && (
+              <div>
+                <p className="text-sm font-semibold text-foreground mb-2">Recommendations for You</p>
+                <ul className="space-y-2">
+                  {aiInsights.recommendations.map((r, i) => (
+                    <li key={i} className="text-sm text-muted-foreground flex items-start gap-2" data-testid={`text-patient-recommendation-${i}`}>
+                      <span className="shrink-0 w-5 h-5 rounded-full bg-primary/10 text-primary text-xs font-bold flex items-center justify-center mt-0.5">{i + 1}</span>
+                      {r}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {aiInsights.symptomPatterns && (
+              <div className="p-3 rounded-lg border bg-card">
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">Symptom Patterns</p>
+                <p className="text-sm text-foreground" data-testid="text-patient-ai-patterns">{aiInsights.symptomPatterns}</p>
+              </div>
+            )}
+          </CardContent>
+        )}
+      </Card>
+
+      {/* MS Stage Classification */}
+      <div>
+        <h3 className="text-base font-semibold text-foreground mb-3">MS Stage Classification</h3>
+        {!hasAge && !hasRelapses && !hasDuration ? (
+          <Card>
+            <CardContent className="pt-6">
+              <div className="text-center py-8">
+                <Brain className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
+                <h3 className="text-lg font-medium text-foreground mb-1">Insufficient Data</h3>
+                <p className="text-sm text-muted-foreground">Your clinician needs to record your age, relapses, and MS duration for stage classification.</p>
+              </div>
+            </CardContent>
+          </Card>
+        ) : (
+          <div className="grid grid-cols-1 gap-4">
+            {ageStage && (
+              <Card>
+                <CardContent className="pt-6">
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-sm font-medium text-muted-foreground">By Age ({patient.age} years)</p>
+                    <span className={`px-3 py-1 rounded-full text-xs font-semibold ${STAGE_COLORS[ageStage.stage]}`} data-testid="text-stage-age">
+                      {ageStage.stage}
+                    </span>
+                  </div>
+                  <p className="text-sm text-foreground">{ageStage.description}</p>
+                </CardContent>
+              </Card>
+            )}
+
+            {relapseStage && (
+              <Card>
+                <CardContent className="pt-6">
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-sm font-medium text-muted-foreground">By Relapses ({patient.totalRelapses} total)</p>
+                    <span className={`px-3 py-1 rounded-full text-xs font-semibold ${STAGE_COLORS[relapseStage.stage]}`} data-testid="text-stage-relapses">
+                      {relapseStage.stage}
+                    </span>
+                  </div>
+                  <p className="text-sm text-foreground">{relapseStage.description}</p>
+                </CardContent>
+              </Card>
+            )}
+
+            {durationStage && (
+              <Card>
+                <CardContent className="pt-6">
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-sm font-medium text-muted-foreground">By Duration ({patient.msDurationYears} years)</p>
+                    <span className={`px-3 py-1 rounded-full text-xs font-semibold ${STAGE_COLORS[durationStage.stage]}`} data-testid="text-stage-duration">
+                      {durationStage.stage}
+                    </span>
+                  </div>
+                  <p className="text-sm text-foreground">{durationStage.description}</p>
+                </CardContent>
+              </Card>
+            )}
+          </div>
+        )}
+      </div>
 
       {topSymptoms.length > 0 && (
         <Card>
@@ -1075,6 +1344,35 @@ function MsInsightsTab({ patient, recentLogs }: { patient: PatientData; recentLo
         </Card>
       )}
 
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-base flex items-center gap-2">
+              <TrendingUp className="w-4 h-4" /> Symptom Variance Analysis
+            </CardTitle>
+            <Button
+              variant={showVariance ? "default" : "outline"}
+              size="sm"
+              onClick={() => setShowVariance(!showVariance)}
+              data-testid="button-generate-patient-variance"
+            >
+              <Activity className="w-3 h-3 mr-1" />
+              {showVariance ? "Hide Insights" : "Generate Insights"}
+            </Button>
+          </div>
+          <CardDescription>Analyse which of your tracked metrics varies the most over time</CardDescription>
+        </CardHeader>
+        {showVariance && (
+          <CardContent>
+            {varianceLoading ? (
+              <Skeleton className="h-40 w-full" />
+            ) : varianceData ? (
+              <PatientSymptomVarianceChart data={varianceData} />
+            ) : null}
+          </CardContent>
+        )}
+      </Card>
+
       <Card className="border-yellow-500/20">
         <CardContent className="pt-6">
           <div className="flex items-start gap-3">
@@ -1082,8 +1380,8 @@ function MsInsightsTab({ patient, recentLogs }: { patient: PatientData; recentLo
             <div>
               <p className="text-sm font-medium text-foreground">Medical Disclaimer</p>
               <p className="text-xs text-muted-foreground mt-1">
-                MS stage classification shown here is for informational purposes only and is based on general clinical guidelines. 
-                It does not constitute a medical diagnosis. Please consult your neurologist for an accurate assessment.
+                MS stage classification and AI insights shown here are for informational purposes only and are based on general clinical guidelines. 
+                They do not constitute a medical diagnosis. Please consult your neurologist for an accurate assessment.
               </p>
             </div>
           </div>

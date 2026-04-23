@@ -22,6 +22,7 @@ interface AuthContextType {
     clinicianEmail?: string;
   }) => Promise<void>;
   logout: () => Promise<void>;
+  refreshUser: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
@@ -109,8 +110,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setLocation("/login");
   }, [setLocation]);
 
+  const refreshUser = useCallback(async () => {
+    await queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
+  }, []);
+
   return (
-    <AuthContext.Provider value={{ user, isLoading, login, register, logout }}>
+    <AuthContext.Provider value={{ user, isLoading, login, register, logout, refreshUser }}>
       {children}
     </AuthContext.Provider>
   );

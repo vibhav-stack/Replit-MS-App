@@ -8,6 +8,7 @@ import LoginPage from "@/pages/login";
 import RegisterPage from "@/pages/register";
 import ForgotPasswordPage from "@/pages/forgot-password";
 import ResetPasswordPage from "@/pages/reset-password";
+import AcceptInvitePage from "@/pages/accept-invite";
 import ClinicianDashboard from "@/pages/clinician-dashboard";
 import PatientDashboard from "@/pages/patient-dashboard";
 import NotFound from "@/pages/not-found";
@@ -79,6 +80,9 @@ function Router() {
       </Route>
       <Route path="/reset-password">
         <ResetPasswordPage />
+      </Route>
+      <Route path="/accept-invite">
+        <AcceptInvitePage />
       </Route>
       <Route path="/clinician/dashboard">
         <ProtectedRoute requiredRole="clinician">

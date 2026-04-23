@@ -81,6 +81,36 @@ export const dailyLogs = pgTable("daily_logs", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+export const invitationTokens = pgTable("invitation_tokens", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  email: text("email").notNull(),
+  name: text("name").notNull(),
+  clinicianId: varchar("clinician_id").notNull().references(() => users.id),
+  token: text("token").notNull().unique(),
+  patientData: text("patient_data"),
+  expiresAt: timestamp("expires_at").notNull(),
+  used: text("used").default("false"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const invitePatientSchema = z.object({
+  patientName: z.string().min(2, "Patient name is required"),
+  patientEmail: z.string().email("Invalid email address"),
+  age: z.number().int().positive().nullable().optional(),
+  msDurationYears: z.string().nullable().optional(),
+  totalRelapses: z.number().int().min(0).nullable().optional(),
+  relapsesLast12Months: z.number().int().min(0).nullable().optional(),
+  edssScore: z.string().nullable().optional(),
+  notes: z.string().nullable().optional(),
+});
+
+export const acceptInviteSchema = z.object({
+  token: z.string(),
+  password: z.string().min(6, "Password must be at least 6 characters"),
+});
+
+export type InvitationToken = typeof invitationTokens.$inferSelect;
+
 export const insertPatientSchema = createInsertSchema(patients).omit({
   id: true,
   createdAt: true,

@@ -5,12 +5,14 @@ import {
   patients,
   passwordResetTokens,
   dailyLogs,
+  invitationTokens,
   type User,
   type Patient,
   type InsertPatient,
   type PasswordResetToken,
   type DailyLog,
   type InsertDailyLog,
+  type InvitationToken,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -31,6 +33,10 @@ export interface IStorage {
   getDailyLogByDate(patientUserId: string, logDate: string): Promise<DailyLog | undefined>;
   getDailyLogsByDateRange(patientUserId: string, startDate: string, endDate: string): Promise<DailyLog[]>;
   getRecentDailyLogs(patientUserId: string, limit: number): Promise<DailyLog[]>;
+  createInvitationToken(data: { email: string; name: string; clinicianId: string; token: string; patientData: string; expiresAt: Date }): Promise<InvitationToken>;
+  getInvitationToken(token: string): Promise<InvitationToken | undefined>;
+  markInvitationUsed(id: string): Promise<void>;
+  acceptInvitation(invitation: InvitationToken, passwordHash: string, patientInfo: any): Promise<User>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -132,6 +138,46 @@ export class DatabaseStorage implements IStorage {
       .where(eq(dailyLogs.patientUserId, patientUserId))
       .orderBy(desc(dailyLogs.logDate))
       .limit(limit);
+  }
+  async createInvitationToken(data: { email: string; name: string; clinicianId: string; token: string; patientData: string; expiresAt: Date }): Promise<InvitationToken> {
+    const [invitation] = await db.insert(invitationTokens).values(data).returning();
+    return invitation;
+  }
+
+  async getInvitationToken(token: string): Promise<InvitationToken | undefined> {
+    const [invitation] = await db.select().from(invitationTokens)
+      .where(and(eq(invitationTokens.token, token), eq(invitationTokens.used, "false")));
+    return invitation;
+  }
+
+  async markInvitationUsed(id: string): Promise<void> {
+    await db.update(invitationTokens).set({ used: "true" }).where(eq(invitationTokens.id, id));
+  }
+
+  async acceptInvitation(invitation: InvitationToken, passwordHash: string, patientInfo: any): Promise<User> {
+    return await db.transaction(async (tx) => {
+      const [user] = await tx.insert(users).values({
+        name: invitation.name,
+        email: invitation.email,
+        passwordHash,
+        role: "patient",
+      }).returning();
+
+      await tx.insert(patients).values({
+        clinicianId: invitation.clinicianId,
+        patientUserId: user.id,
+        age: patientInfo.age || null,
+        msDurationYears: patientInfo.msDurationYears || null,
+        totalRelapses: patientInfo.totalRelapses || null,
+        relapsesLast12Months: patientInfo.relapsesLast12Months || null,
+        edssScore: patientInfo.edssScore || null,
+        notes: patientInfo.notes || null,
+      });
+
+      await tx.update(invitationTokens).set({ used: "true" }).where(eq(invitationTokens.id, invitation.id));
+
+      return user;
+    });
   }
 }
 

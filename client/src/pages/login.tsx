@@ -5,12 +5,20 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { loginSchema } from "@shared/schema";
 import { z } from "zod";
 import { useAuth } from "@/lib/auth";
+import { usePWAInstall } from "@/hooks/use-pwa-install";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Cloud, LogIn, AlertCircle, Loader2 } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
+import { Cloud, LogIn, AlertCircle, Loader2, Download, Share, MoreVertical } from "lucide-react";
 
 type LoginForm = z.infer<typeof loginSchema>;
 
@@ -18,6 +26,8 @@ export default function LoginPage() {
   const { login } = useAuth();
   const [error, setError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showInstructions, setShowInstructions] = useState(false);
+  const { platform, install, isInstalled } = usePWAInstall();
 
   const form = useForm<LoginForm>({
     resolver: zodResolver(loginSchema),
@@ -36,6 +46,14 @@ export default function LoginPage() {
     }
   };
 
+  const handleInstall = async () => {
+    if (platform === "native") {
+      await install();
+    } else {
+      setShowInstructions(true);
+    }
+  };
+
   return (
     <div className="min-h-screen flex items-center justify-center bg-background p-4">
       <div className="w-full max-w-md">
@@ -45,6 +63,19 @@ export default function LoginPage() {
           </div>
           <h1 className="text-3xl font-bold tracking-tight text-foreground">Clear Skies</h1>
           <p className="text-muted-foreground mt-1">MS Patient Management Portal</p>
+
+          {!isInstalled && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleInstall}
+              data-testid="button-install-pwa"
+              className="mt-4 text-primary border-primary/30 hover:bg-primary/5"
+            >
+              <Download className="w-3.5 h-3.5 mr-1.5" />
+              Install App
+            </Button>
+          )}
         </div>
 
         <Card>
@@ -109,14 +140,80 @@ export default function LoginPage() {
             </form>
 
             <div className="mt-6 text-center text-sm text-muted-foreground">
-              Don't have an account?{" "}
-              <Link href="/register" className="text-primary hover:underline font-medium" data-testid="link-register">
-                Create one
-              </Link>
+              <p>
+                Clinician?{" "}
+                <Link href="/register" className="text-primary hover:underline font-medium" data-testid="link-register">
+                  Register here
+                </Link>
+              </p>
+              <p className="mt-1 text-xs">
+                Patients are invited by their clinician via email.
+              </p>
             </div>
           </CardContent>
         </Card>
       </div>
+
+      <Dialog open={showInstructions} onOpenChange={setShowInstructions}>
+        <DialogContent className="max-w-sm" data-testid="dialog-install-instructions">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Download className="w-4 h-4 text-primary" />
+              Add to Home Screen
+            </DialogTitle>
+            <DialogDescription>
+              Install Clear Skies for quick access from your home screen.
+            </DialogDescription>
+          </DialogHeader>
+
+          {platform === "ios" ? (
+            <div className="space-y-3 text-sm text-foreground">
+              <p className="text-muted-foreground text-xs">Follow these steps in Safari on your iPhone or iPad:</p>
+              <div className="space-y-2">
+                <div className="flex items-start gap-3">
+                  <span className="w-5 h-5 rounded-full bg-primary/10 text-primary text-xs flex items-center justify-center font-semibold shrink-0 mt-0.5">1</span>
+                  <p>Tap the <Share className="w-3.5 h-3.5 inline mx-0.5 text-blue-500" /> <strong>Share</strong> button in the Safari toolbar at the bottom of the screen.</p>
+                </div>
+                <div className="flex items-start gap-3">
+                  <span className="w-5 h-5 rounded-full bg-primary/10 text-primary text-xs flex items-center justify-center font-semibold shrink-0 mt-0.5">2</span>
+                  <p>Scroll down and tap <strong>"Add to Home Screen"</strong>.</p>
+                </div>
+                <div className="flex items-start gap-3">
+                  <span className="w-5 h-5 rounded-full bg-primary/10 text-primary text-xs flex items-center justify-center font-semibold shrink-0 mt-0.5">3</span>
+                  <p>Tap <strong>"Add"</strong> in the top-right corner to confirm.</p>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-3 text-sm text-foreground">
+              <p className="text-muted-foreground text-xs">Follow these steps in Chrome or Edge:</p>
+              <div className="space-y-2">
+                <div className="flex items-start gap-3">
+                  <span className="w-5 h-5 rounded-full bg-primary/10 text-primary text-xs flex items-center justify-center font-semibold shrink-0 mt-0.5">1</span>
+                  <p>Tap the <MoreVertical className="w-3.5 h-3.5 inline mx-0.5" /> <strong>menu</strong> button (three dots) in the top-right of your browser.</p>
+                </div>
+                <div className="flex items-start gap-3">
+                  <span className="w-5 h-5 rounded-full bg-primary/10 text-primary text-xs flex items-center justify-center font-semibold shrink-0 mt-0.5">2</span>
+                  <p>Select <strong>"Add to Home Screen"</strong> or <strong>"Install App"</strong>.</p>
+                </div>
+                <div className="flex items-start gap-3">
+                  <span className="w-5 h-5 rounded-full bg-primary/10 text-primary text-xs flex items-center justify-center font-semibold shrink-0 mt-0.5">3</span>
+                  <p>Tap <strong>"Add"</strong> to confirm.</p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <Button
+            variant="outline"
+            className="w-full mt-2"
+            onClick={() => setShowInstructions(false)}
+            data-testid="button-close-install-instructions"
+          >
+            Got it
+          </Button>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
